@@ -114,7 +114,6 @@ This command will delete the SQLite database and the Chroma vector store.
 -   `--ask`: Ask a question.
 -   `--model`: HuggingFace model name (default: `meta-llama/Llama-2-7b-chat-hf`).
 -   `--stats`: Show statistics about processed emails.
--   `--reprocess`: Re-process the folder even if it has been processed before.
 -   `--reset`: Perform a factory reset.
 
 ## Notes

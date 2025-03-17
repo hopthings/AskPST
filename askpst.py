@@ -24,7 +24,21 @@ from transformers import pipeline
 import shutil
 
 class AskPST:
+    """
+    AskPST: Query your email archives with a local LLM.
+    
+    This class provides methods to process PST and MSG files, extract email content,
+    set up a local LLM for question answering, create a vector store for semantic search,
+    and provide email statistics.
+    """
     def __init__(self, model_name="tiiuae/falcon-7b-instruct"):
+        """
+        Initializes the AskPST class.
+        
+        Args:
+            model_name (str, optional): The name of the HuggingFace model to use.
+                Defaults to "tiiuae/falcon-7b-instruct".
+        """
         self.conn = None
         self.db_path = "askpst.db"  # Initialize db_path
         self.embeddings = None
@@ -34,7 +48,15 @@ class AskPST:
         self.model_name = model_name
         
     def setup_database(self, db_path):
-        """Set up SQLite database for email storage"""
+        """
+        Set up SQLite database for email storage.
+        
+        Creates the database if it doesn't exist and sets up the necessary tables
+        (emails and processed_files).
+        
+        Args:
+            db_path (str): The path to the SQLite database file.
+        """
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         cursor = self.conn.cursor()
@@ -72,8 +94,19 @@ class AskPST:
         
         self.conn.commit()
     
-    def process_pst_folder(self, folder_path, reprocess=False):
-        """Process all PST and MSG files in a folder"""
+    def process_pst_folder(self, folder_path):
+        """
+        Process all PST and MSG files in a folder.
+        
+        Scans the specified folder for PST and MSG files, extracts the email content,
+        and stores it in a SQLite database.
+        
+        Args:
+            folder_path (str): The path to the folder containing PST and MSG files.
+        
+        Returns:
+            bool: True if the folder was processed successfully, False otherwise.
+        """
         try:
             cursor = self.conn.cursor()
             
@@ -93,21 +126,8 @@ class AskPST:
             
             # Process each PST file
             for pst_path in pst_files:
-                # Check if file has been processed before
-                if not reprocess:
-                    cursor.execute("SELECT id FROM processed_files WHERE file_path = ?", (pst_path,))
-                    if cursor.fetchone():
-                        print(f"PST file {pst_path} has already been processed. Skipping...")
-                        continue
-                
                 try:
                     self._process_pst_file(pst_path)
-                    # Mark file as processed
-                    cursor.execute(
-                        "INSERT INTO processed_files (file_path, processed_date) VALUES (?, ?)",
-                        (pst_path, datetime.now().isoformat())
-                    )
-                    self.conn.commit()
                 except Exception as e:
                     print(f"Error processing PST file {pst_path}: {e}")
             
@@ -126,7 +146,14 @@ class AskPST:
             return False
 
     def _process_pst_file(self, pst_path):
-        """Process a PST file using libratom"""
+        """
+        Process a PST file using libratom.
+        
+        Extracts messages from the PST file and stores them in the database.
+        
+        Args:
+            pst_path (str): The path to the PST file.
+        """
         try:
             print(f"Opening PST file: {pst_path}")
             with PffArchive(pst_path) as archive:
@@ -136,7 +163,14 @@ class AskPST:
             print(f"Error processing PST file {pst_path}: {e}")
 
     def _process_pst_folder_recursive(self, folder):
-        """Recursively process a PST folder and its subfolders"""
+        """
+        Recursively process a PST folder and its subfolders.
+        
+        Traverses the folder structure and extracts messages from each folder.
+        
+        Args:
+            folder (libratom.lib.pff.Folder): The PST folder to process.
+        """
         try:
             print(f"Processing PST folder: {folder.name}")
             for message in folder.sub_messages:
@@ -150,7 +184,15 @@ class AskPST:
             print(f"Error processing folder {folder.name}: {e}")
 
     def _process_extracted_message(self, message):
-        """Process a message extracted from a PST file"""
+        """
+        Process a message extracted from a PST file.
+        
+        Extracts the message details (subject, sender, recipients, date, body, attachments)
+        and stores them in the database.
+        
+        Args:
+            message (libratom.lib.pff.Message): The message object to process.
+        """
         try:
             subject = message.subject or ""
             sender = message.sender_name or ""
@@ -178,7 +220,15 @@ class AskPST:
             print(f"Error processing extracted message: {e}")
 
     def _process_msg_file(self, msg_path):
-        """Process a single MSG file"""
+        """
+        Process a single MSG file.
+        
+        Extracts the message details (subject, sender, recipients, date, body, attachments)
+        and stores them in the database.
+        
+        Args:
+            msg_path (str): The path to the MSG file.
+        """
         try:
             print(f"Opening MSG file: {msg_path}")
             msg = extract_msg.Message(msg_path)
@@ -199,7 +249,11 @@ class AskPST:
             print(f"Error processing MSG file {msg_path}: {e}")
     
     def setup_llm(self):
-        """Initialize the local LLM using HuggingFace models"""
+        """
+        Initialize the local LLM using HuggingFace models.
+        
+        Sets up the embeddings, tokenizer, and text generation pipeline for the LLM.
+        """
         print("Setting up LLM and embeddings...")
         
         # Set up embeddings
@@ -229,7 +283,30 @@ class AskPST:
         print("LLM setup complete")
     
     def create_vector_store(self):
-        """Create vector store from processed emails"""
+        """
+        Create vector store from processed emails.
+
+        Retrieves all emails from the database, creates documents from them,
+        splits the documents into chunks, and builds a Chroma vector store.
+
+        A vector store is a data structure that stores text data in the form of vectors.
+        These vectors are numerical representations of the text, which can be used for
+        efficient similarity search and retrieval. By converting text data into vectors,
+        it becomes easier to perform operations like searching for similar documents,
+        clustering, and classification.
+
+        Steps:
+
+        1. Retrieve all emails from the database.
+        2. Create documents from the retrieved emails, including metadata.
+        3. Split the documents into smaller chunks for better processing.
+        4. Build a Chroma vector store from the chunks using embeddings.
+
+        Prints:
+
+            Status messages indicating the progress of vector store creation.
+
+        """
         print("Creating vector store from emails...")
         
         # Get all emails from database
@@ -276,7 +353,18 @@ class AskPST:
         print(f"Vector store created with {len(splits)} chunks")
     
     def setup_qa_chain(self):
-        """Set up question answering chain"""
+        """
+        Set up question answering chain.
+        
+        Defines the prompt template and creates a retrieval QA chain using the LLM and vector store.
+        
+        A QA (Question Answering) chain is a sequence of operations that takes a user's question,
+        retrieves relevant context from a data source (in this case, the vector store), and uses
+        a language model to generate an answer based on the retrieved context. This allows for
+        efficient and accurate responses to user queries by leveraging both the semantic search
+        capabilities of the vector store and the generative capabilities of the language model.
+
+        """
         # Define prompt template
         template = """
         You are an email analysis assistant called AskPST. Use the following pieces of context about emails to answer the question.
@@ -307,7 +395,17 @@ class AskPST:
         print("QA chain setup complete")
     
     def ask_question(self, question):
-        """Ask a question about the emails"""
+        """
+        Ask a question about the emails.
+        
+        Queries the vector store and uses the LLM to generate an answer based on the email content.
+        
+        Args:
+            question (str): The question to ask.
+        
+        Returns:
+            str: The answer generated by the LLM.
+        """
         if not self.qa_chain:
             print("QA chain not set up yet")
             return None
@@ -315,7 +413,12 @@ class AskPST:
         return self.qa_chain.run(question)
     
     def get_stats(self):
-        """Get statistics about the processed emails"""
+        """
+        Get statistics about the processed emails.
+        
+        Retrieves and prints statistics such as the total number of emails,
+        emails by year, and top senders.
+        """
         if not self.conn:
             print("Database not connected")
             return
@@ -359,12 +462,20 @@ class AskPST:
             print(f"  {sender}: {count}")
     
     def close(self):
-        """Close database connection"""
+        """
+        Close database connection.
+        
+        Closes the connection to the SQLite database.
+        """
         if self.conn:
             self.conn.close()
 
     def reset(self):
-        """Perform a factory reset by removing the database, vector db, and any history"""
+        """
+        Perform a factory reset by removing the database, vector db, and any history.
+        
+        Deletes the SQLite database and the Chroma vector store.
+        """
         if self.conn:
             self.conn.close()
         if os.path.exists(self.db_path):
@@ -380,7 +491,7 @@ def main():
     AskPST is a script that allows you to query your email archives using a local language model.
     
     Setup steps:
-      --process: Process the PST/MSG files in the specified folder. Use the --reprocess flag to force re-processing even if the folder was processed before.
+      --process: Process the PST/MSG files in the specified folder.
       --setup: Initialise the local LLM, create the vector store from the processed emails, and set up the question answering (QA) chain. This uses the specified or default HuggingFace model.
       --ask: Ask a question about the contents of your email archives. For example: "Who was the most aggressive person who would email me?" or "When did we first start discussing a contract with X?"
       --stats: Display statistics about the processed emails.
@@ -394,7 +505,8 @@ def main():
     Example usage:
       python askpst.py --folder pst/ --process
       python askpst.py --setup --model "tiiuae/falcon-7b-instruct"
-      python askpst.py --ask "Who was the most aggressive person who would email me?"
+      python askpst.py --ask "Who emailed me the most?"
+      
     """
     parser = argparse.ArgumentParser(description="AskPST: Query your email archives with a local LLM")
     parser.add_argument("--folder", help="Path to folder containing PST/MSG files")
@@ -404,7 +516,6 @@ def main():
     parser.add_argument("--ask", help="Ask a question")
     parser.add_argument("--model", default="tiiuae/falcon-7b-instruct", help="HuggingFace model name")
     parser.add_argument("--stats", action="store_true", help="Show statistics about processed emails")
-    parser.add_argument("--reprocess", action="store_true", help="Re-process the folder even if it has been processed before")
     parser.add_argument("--reset", action="store_true", help="Perform a factory reset")
     
     args = parser.parse_args()
@@ -430,7 +541,7 @@ def main():
     
     if args.process and args.folder:
         print(f"Processing folder: {args.folder}")
-        askpst.process_pst_folder(args.folder, reprocess=args.reprocess)
+        askpst.process_pst_folder(args.folder)
         print("Processing complete")
     
     if args.setup:
