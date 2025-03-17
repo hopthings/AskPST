@@ -1,0 +1,9 @@
+transformers
+torch
+langchain
+langchain_community
+extract_msg
+tqdm
+numpy
+pydantic
+libratom

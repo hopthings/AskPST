@@ -61,17 +61,21 @@ class AskPST:
         )
         ''')
         
+        # Create processed_files table to track processed PST files
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS processed_files (
+            id INTEGER PRIMARY KEY,
+            file_path TEXT UNIQUE,
+            processed_date TEXT
+        )
+        ''')
+        
         self.conn.commit()
     
     def process_pst_folder(self, folder_path, reprocess=False):
         """Process all PST and MSG files in a folder"""
         try:
             cursor = self.conn.cursor()
-            if not reprocess:
-                cursor.execute("SELECT id FROM processed_folders WHERE folder_path = ?", (folder_path,))
-                if cursor.fetchone():
-                    print(f"Folder {folder_path} has already been processed. Skipping...")
-                    return True
             
             print(f"Processing folder: {folder_path}")
             
@@ -87,6 +91,26 @@ class AskPST:
             
             print(f"Found {len(pst_files)} PST files and {len(msg_files)} MSG files")
             
+            # Process each PST file
+            for pst_path in pst_files:
+                # Check if file has been processed before
+                if not reprocess:
+                    cursor.execute("SELECT id FROM processed_files WHERE file_path = ?", (pst_path,))
+                    if cursor.fetchone():
+                        print(f"PST file {pst_path} has already been processed. Skipping...")
+                        continue
+                
+                try:
+                    self._process_pst_file(pst_path)
+                    # Mark file as processed
+                    cursor.execute(
+                        "INSERT INTO processed_files (file_path, processed_date) VALUES (?, ?)",
+                        (pst_path, datetime.now().isoformat())
+                    )
+                    self.conn.commit()
+                except Exception as e:
+                    print(f"Error processing PST file {pst_path}: {e}")
+            
             # Process MSG files as before
             for msg_path in msg_files:
                 try:
@@ -95,20 +119,6 @@ class AskPST:
                 except Exception as e:
                     print(f"Error processing MSG file {msg_path}: {e}")
             
-            # Process each PST file using libratom
-            for pst_path in pst_files:
-                try:
-                    self._process_pst_file(pst_path)
-                except Exception as e:
-                    print(f"Error processing PST file {pst_path}: {e}")
-            
-            if reprocess:
-                cursor.execute("DELETE FROM processed_folders WHERE folder_path = ?", (folder_path,))
-            cursor.execute(
-                "INSERT INTO processed_folders (folder_path, processed_date) VALUES (?, ?)",
-                (folder_path, datetime.now().isoformat())
-            )
-            self.conn.commit()
             return True
             
         except Exception as e:
