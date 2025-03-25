@@ -141,6 +141,7 @@ cython_debug/
 
 # Custom folders and files
 /archive/
+/logs/
 /email_chroma_db/
 askpst.db
 .DS_Store
