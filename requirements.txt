@@ -1,0 +1,27 @@
+# Core dependencies
+numpy==1.24.3  # Using older version for compatibility with FAISS and PyPFF
+pandas
+tqdm
+typer
+python-dotenv
+rich
+
+# LLM dependencies
+torch
+transformers
+sentencepiece
+faiss-cpu
+llama-cpp-python
+
+# PST processing
+libpff-python
+tika
+extract-msg
+pypff
+
+# Development dependencies
+pytest
+flake8
+black
+isort
+mypy

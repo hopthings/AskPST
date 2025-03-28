@@ -21,9 +21,9 @@ except (ImportError, RuntimeError) as e:
     logging.warning(f"llama_cpp module not available: {str(e)}")
     logging.warning("LLM functionality will be limited to keyword-based search.")
 
-# Configure logging
+# Configure logging - default to ERROR level to suppress INFO and WARNING messages
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,  # Only show errors by default
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -394,15 +394,9 @@ Output ONLY a score from 0-10 where 10 is extremely relevant."""
             # First pass: truncate long emails
             for email in context:
                 body = email.get('body', '')
-                # Truncate differently based on query
-                if "tone" in query.lower() or "emotion" in query.lower() or "sentiment" in query.lower():
-                    # For sentiment analysis, keep more of the body
-                    if len(body) > 3000:
-                        email['body'] = body[:3000] + "... [truncated]"
-                else:
-                    # For other queries, we can be more aggressive
-                    if len(body) > 1500:
-                        email['body'] = body[:1500] + "... [truncated]"
+                # Use consistent truncation length of 2000 characters
+                if len(body) > 2000:
+                    email['body'] = body[:2000] + "... [truncated]"
             
             # Second pass: If we have many emails, be selective based on the query
             if len(context) > 7:
@@ -456,11 +450,11 @@ Output ONLY a score from 0-10 where 10 is extremely relevant."""
             
         except Exception as e:
             logger.warning(f"Context optimization failed: {str(e)}")
-            # Fall back to simple truncation
+            # Fall back to simple truncation with consistent length
             for email in context:
                 body = email.get('body', '')
-                if len(body) > 1000:
-                    email['body'] = body[:1000] + "... [truncated]"
+                if len(body) > 2000:
+                    email['body'] = body[:2000] + "... [truncated]"
             return context[:7] if len(context) > 7 else context
     
     def _format_context(self, emails: List[Dict[str, Any]]) -> str:
@@ -657,7 +651,7 @@ You should analyze communication patterns, language use, topics discussed, and r
             
         # For very small context sets, no optimization needed
         if len(context) <= 3:
-            # Just do basic truncation
+            # Just do basic truncation with consistent length
             for email in context:
                 body = email.get('body', '')
                 if len(body) > 2000:
@@ -666,11 +660,11 @@ You should analyze communication patterns, language use, topics discussed, and r
         
         # For larger context sets, prioritize based on query
         try:
-            # Truncate long emails
+            # Truncate long emails with consistent length
             for email in context:
                 body = email.get('body', '')
-                if len(body) > 1500:
-                    email['body'] = body[:1500] + "... [truncated]"
+                if len(body) > 2000:
+                    email['body'] = body[:2000] + "... [truncated]"
             
             # Limit the number of emails for context
             if len(context) > 7:
@@ -700,11 +694,11 @@ You should analyze communication patterns, language use, topics discussed, and r
             
         except Exception as e:
             logger.warning(f"Context optimization failed: {str(e)}")
-            # Fall back to simple truncation
+            # Fall back to simple truncation with consistent length
             for email in context:
                 body = email.get('body', '')
-                if len(body) > 1000:
-                    email['body'] = body[:1000] + "... [truncated]"
+                if len(body) > 2000:
+                    email['body'] = body[:2000] + "... [truncated]"
             return context[:5]  # More conservative fallback for DeepSeek
     
     def _format_context(self, emails: List[Dict[str, Any]]) -> str:
@@ -771,30 +765,53 @@ class SimpleKeywordLLM(BaseLLM):
             sender = email.get('sender_name', '') or email.get('sender_email', '')
             if sender:
                 sender_count[sender] = sender_count.get(sender, 0) + 1
+        
+        # Helper function to add email content to a response
+        def add_email_content(response):
+            if not context:
+                return response
                 
+            # Use the first result as it should be most relevant
+            most_relevant_email = context[0]
+            sender = most_relevant_email.get('sender_name', '') or most_relevant_email.get('sender_email', '')
+            date = most_relevant_email.get('date', '')
+            subject = most_relevant_email.get('subject', '')
+            body = most_relevant_email.get('body', '')
+            
+            # Format the email details
+            content = f"\n\nMost relevant email:\nFrom: {sender}\nDate: {date}\nSubject: {subject}\n\n{body[:2000]}"
+            if len(body) > 2000:
+                content += "... [truncated]"
+                
+            return response + content
+        
         # Look for common question patterns
         if "how many" in query_lower and "email" in query_lower:
-            return f"I found {len(context)} relevant emails in your data."
+            response = f"I found {len(context)} relevant emails in your data."
+            return add_email_content(response)
             
-        elif "who sent" in query_lower or "who emailed" in query_lower:
+        elif "who sent" in query_lower or "who emailed" in query_lower or "who asked" in query_lower:
             if sender_count:
                 top_sender = max(sender_count.items(), key=lambda x: x[1])
-                return f"The person who sent the most emails in this context was {top_sender[0]} with {top_sender[1]} emails."
+                response = f"The person who sent the most emails in this context was {top_sender[0]} with {top_sender[1]} emails."
             else:
-                return "I couldn't identify any senders in these emails."
+                response = "I couldn't identify any senders in these emails."
+            return add_email_content(response)
                 
         elif "when" in query_lower:
             # Look for dates
             dates = [email.get('date', '') for email in context if email.get('date')]
             if dates:
                 dates.sort()
-                return f"The relevant emails span from {dates[0]} to {dates[-1]}."
+                response = f"The relevant emails span from {dates[0]} to {dates[-1]}."
             else:
-                return "I couldn't find any date information in these emails."
+                response = "I couldn't find any date information in these emails."
+            return add_email_content(response)
                 
         else:
             # Generic response with summary
-            return f"I found {len(context)} emails related to your query. The top sender was {max(sender_count.items(), key=lambda x: x[1])[0] if sender_count else 'unknown'}."
+            response = f"I found {len(context)} emails related to your query. The top sender was {max(sender_count.items(), key=lambda x: x[1])[0] if sender_count else 'unknown'}."
+            return add_email_content(response)
 
 
 class HybridLLM(BaseLLM):
@@ -982,11 +999,11 @@ class HybridLLM(BaseLLM):
             except Exception:
                 pass
         
-        # Fallback to simple truncation
+        # Fallback to simple truncation with consistent length
         for email in context:
             body = email.get('body', '')
-            if len(body) > 1000:
-                email['body'] = body[:1000] + "... [truncated]"
+            if len(body) > 2000:
+                email['body'] = body[:2000] + "... [truncated]"
         return context[:5]
 
 

@@ -8,6 +8,7 @@ import warnings
 # Suppress warnings from transformers/torch compatibility
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="A module that was compiled using NumPy 1.x cannot be run in NumPy 2")
 
 import numpy as np
 try:

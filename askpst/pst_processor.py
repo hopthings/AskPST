@@ -4,8 +4,12 @@ import os
 import json
 import logging
 import sqlite3  # This is a built-in module
+import warnings
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
+
+# Filter NumPy warnings
+warnings.filterwarnings("ignore", message="A module that was compiled using NumPy 1.x cannot be run in NumPy 2")
 
 import numpy as np
 import pandas as pd
@@ -37,9 +41,9 @@ except ImportError:
     def get_embeddings(texts):
         return np.zeros((len(texts), 10), dtype=np.float32)
 
-# Configure logging
+# Configure logging - default to ERROR level to suppress INFO and WARNING messages
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,  # Only show errors by default
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)

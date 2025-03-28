@@ -100,6 +100,17 @@ python -m askpst.llm_ask "who sent me the angriest emails?"
 
 # Use the simple LLM model for fallback functionality
 python -m askpst.llm_ask "how many resignation emails did I get?" --model=simple
+
+# Adjust the number of emails used for context (default is 25)
+python -m askpst.llm_ask "important emails from Andy" --top-k 50
+
+# Force a specific model (options: llama3, deepseek, simple)
+python -m askpst.llm_ask "who complained about Gina?" --model=deepseek
+
+# For a cleaner experience, use the provided scripts or quiet mode:
+python -m askpst.llm_ask "Who asked me about bereavement?" --quiet    # Suppresses most warnings and errors
+python scripts/run_askpst_clean.py "Who was angry?"                   # Complete suppression of import errors
+./scripts/run_askpst_silent.sh "Who left the company?"                # Guaranteed silent operation - zero warnings/errors
 ```
 
 The llm_ask tool provides:
@@ -107,6 +118,8 @@ The llm_ask tool provides:
 2. Keyword search with emotion/sentiment detection as fallback
 3. LLM-powered analysis of the email content
 4. Responses to complex questions beyond simple keyword matching
+5. Display of up to 2000 characters from the most relevant email
+6. Analysis of 25 emails by default (adjustable with --top-k)
 
 ### Using the Library Directly
 
@@ -195,9 +208,23 @@ python scripts/download_sample_model.py
 
 ### Dependency Issues
 
-- **NumPy compatibility errors**: If you encounter NumPy compatibility issues, try downgrading NumPy:
+- **NumPy compatibility errors**: Several dependencies (like PyPFF and FAISS) require NumPy < 2.0:
   ```bash
   pip uninstall -y numpy && pip install numpy==1.24.3
+  ```
+  
+  Alternatively, you can use the provided requirements.txt file:
+  ```bash
+  pip install -r requirements.txt
+  ```
+  
+  If you see warnings like "A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.4", follow these steps to resolve the issue. 
+
+  For a quick workaround, you can use our silent scripts that completely suppress these errors:
+  ```bash
+  python scripts/run_askpst_clean.py "your question"  # Completely suppresses import errors
+  # OR
+  ./scripts/run_askpst_silent.sh "your question"      # Wrapper around the clean script
   ```
 
 - **Transformers/Torch errors**: The LLM features require compatible versions of transformers and torch:

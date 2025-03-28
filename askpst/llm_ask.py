@@ -9,13 +9,41 @@ import json
 import time
 import sqlite3
 import re
+import warnings
 from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
+
+# Filter NumPy warnings - take care of this first before any imports
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"
+warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", message="A module that was compiled using NumPy 1.x cannot be run in NumPy 2")
+
+# Suppress all logger output by default
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+logging.basicConfig(level=logging.ERROR, handlers=[logging.NullHandler()])
+
+# Redirect stderr to suppress NumPy errors if not in interactive mode
+if not sys.stdin.isatty():
+    # Not running interactively, safe to redirect stderr
+    class NullWriter:
+        def write(self, s):
+            pass
+        def flush(self):
+            pass
+    sys.stderr = NullWriter()
 
 from askpst.pst_processor import PSTProcessor
 # Import with error handling to avoid crashes
 try:
-    from askpst.models.llm_interface import LLMFactory, LLAMA_AVAILABLE 
+    # Temporarily capture stderr to suppress import errors
+    old_stderr = sys.stderr
+    sys.stderr = NullWriter() if 'NullWriter' in locals() else old_stderr
+    
+    from askpst.models.llm_interface import LLMFactory, LLAMA_AVAILABLE
+    
+    # Restore stderr
+    sys.stderr = old_stderr
 except (ImportError, RuntimeError):
     # If we can't import due to library issues, create placeholders
     LLAMA_AVAILABLE = False
@@ -31,9 +59,9 @@ from askpst.utils.embeddings import get_embeddings
 # Load environment variables
 load_dotenv()
 
-# Configure logging
+# Configure logging - default to ERROR level to suppress INFO and WARNING messages
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,  # Only show errors by default
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -42,7 +70,7 @@ logger = logging.getLogger(__name__)
 def semantic_search(
     db_path: str, 
     query: str, 
-    top_k: int = 10, 
+    top_k: int = 25, 
     use_embeddings: bool = True,
     model_type: str = "llama3",
     hybrid_search: bool = True
@@ -366,6 +394,20 @@ def answer_question(query: str, context: List[Dict[str, Any]], user_info: Dict[s
     """
     if not context:
         return "No relevant emails found in your data."
+        
+    # Helper function to format email content
+    def format_email_content(email):
+        sender = email.get('sender_name', '') or email.get('sender_email', '')
+        date = email.get('date', '')
+        subject = email.get('subject', '')
+        body = email.get('body', '')
+        
+        # Format email with more content
+        content = f"\n\nMost relevant email:\nFrom: {sender}\nDate: {date}\nSubject: {subject}\n\n{body[:2000]}"
+        if len(body) > 2000:
+            content += "... [truncated]"
+        
+        return content
     
     # Define simple keyword-based approach as ultimate fallback
     def simple_analysis():
@@ -380,42 +422,94 @@ def answer_question(query: str, context: List[Dict[str, Any]], user_info: Dict[s
                 
         # Look for common question patterns
         if "how many" in query_lower and "email" in query_lower:
-            return f"I found {len(context)} relevant emails in your data."
+            response = f"I found {len(context)} relevant emails in your data."
             
-        elif "who sent" in query_lower or "who emailed" in query_lower:
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
+            
+        elif "who sent" in query_lower or "who emailed" in query_lower or "who asked" in query_lower:
+            response = ""
             if sender_count:
                 top_sender = max(sender_count.items(), key=lambda x: x[1])
-                return f"The person who sent the most emails in this context was {top_sender[0]} with {top_sender[1]} emails."
+                response = f"The person who sent the most emails in this context was {top_sender[0]} with {top_sender[1]} emails."
             else:
-                return "I couldn't identify any senders in these emails."
+                response = "I couldn't identify any senders in these emails."
+            
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
                 
         elif "when" in query_lower:
             # Look for dates
             dates = [email.get('date', '') for email in context if email.get('date')]
+            response = ""
             if dates:
                 dates.sort()
-                return f"The relevant emails span from {dates[0]} to {dates[-1]}."
+                response = f"The relevant emails span from {dates[0]} to {dates[-1]}."
             else:
-                return "I couldn't find any date information in these emails."
+                response = "I couldn't find any date information in these emails."
+                
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
         
         elif any(word in query_lower for word in ["angry", "anger", "mad", "upset", "furious", "rage"]):
             # Analyze tone for anger
-            return f"I analyzed the tone of the emails and found that {list(sender_count.keys())[0] if sender_count else 'unknown'} may have expressed the strongest emotions in their messages."
+            response = f"I analyzed the tone of the emails and found that {list(sender_count.keys())[0] if sender_count else 'unknown'} may have expressed the strongest emotions in their messages."
+            
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
         
         elif any(word in query_lower for word in ["happy", "happiest", "joy", "positive", "friendly"]):
             # Analyze tone for happiness
             senders = list(sender_count.keys())
+            response = ""
             if senders:
-                return f"Based on the tone of the emails, {senders[0]} seems to be using the most positive language in their communications."
+                response = f"Based on the tone of the emails, {senders[0]} seems to be using the most positive language in their communications."
             else:
-                return "I couldn't identify any particularly positive sentiment in the emails."
+                response = "I couldn't identify any particularly positive sentiment in the emails."
+            
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
                 
         elif any(word in query_lower for word in ["emotion", "emotional", "sentiment", "tone", "feeling"]):
-            return f"I analyzed the tone of the emails and found that {list(sender_count.keys())[0] if sender_count else 'unknown'} showed the most noticeable emotional patterns in their messages."
+            response = f"I analyzed the tone of the emails and found that {list(sender_count.keys())[0] if sender_count else 'unknown'} showed the most noticeable emotional patterns in their messages."
+            
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+            
+            return response
                 
         else:
-            # Generic response with summary
-            return f"I found {len(context)} emails related to your query. The top sender was {max(sender_count.items(), key=lambda x: x[1])[0] if sender_count else 'unknown'}."
+            # Generic response with summary and most relevant email content
+            response = f"I found {len(context)} emails related to your query. The top sender was {max(sender_count.items(), key=lambda x: x[1])[0] if sender_count else 'unknown'}."
+            
+            # Add the most relevant email content
+            if context:
+                most_relevant_email = context[0]
+                response += format_email_content(most_relevant_email)
+                    
+            return response
     
     # Try using the Hybrid LLM approach
     try:
@@ -448,22 +542,47 @@ def answer_question(query: str, context: List[Dict[str, Any]], user_info: Dict[s
 
 def main():
     """Run the LLM-based search."""
+    # Capture stderr during argument parsing to avoid warning display
+    old_stderr = sys.stderr
+    sys.stderr = NullWriter() if 'NullWriter' in locals() else old_stderr
+    
     parser = argparse.ArgumentParser(description="Ask questions about your emails using LLM")
     parser.add_argument("question", nargs="?", help="Question to ask about your emails")
     parser.add_argument("--db-path", default="askpst_data.db", help="Path to the database")
-    parser.add_argument("--top-k", type=int, default=10, help="Maximum number of results to use for context")
+    parser.add_argument("--top-k", type=int, default=25, help="Maximum number of results to use for context")
     parser.add_argument("--no-embeddings", action="store_true", help="Disable vector search and use keywords only")
     parser.add_argument("--no-hybrid", action="store_true", help="Disable hybrid search (vector + keyword)")
     parser.add_argument("--model", help="LLM model to use (llama3, deepseek, simple)")
     parser.add_argument("--no-fallback", action="store_true", help="Disable fallback to other models")
     parser.add_argument("--verbose", action="store_true", help="Show detailed processing information")
+    parser.add_argument("--quiet", action="store_true", help="Suppress warnings and non-critical errors")
     
     args = parser.parse_args()
     
-    # Set logging level based on verbosity
+    # Restore stderr if verbose mode is enabled, otherwise keep it redirected
     if args.verbose:
+        sys.stderr = old_stderr
+    else:
+        # Keep stderr redirected for quiet operation
+        pass
+    
+    # Set logging level based on verbosity or quiet mode
+    if args.verbose:
+        # Only increase verbosity if explicitly requested
         logger.setLevel(logging.DEBUG)
         logging.getLogger().setLevel(logging.DEBUG)
+        # Allow all output when verbose
+        sys.stderr = old_stderr
+    else:
+        # In non-verbose mode (default), suppress most output
+        logger.setLevel(logging.ERROR) 
+        logging.getLogger().setLevel(logging.ERROR)
+        
+        # In quiet mode, suppress everything except explicit print statements
+        if args.quiet:
+            # Redirect logging output completely
+            null_handler = logging.StreamHandler(NullWriter() if 'NullWriter' in locals() else open(os.devnull, 'w'))
+            logging.getLogger().handlers = [null_handler]
     
     # Check if database exists
     if not os.path.exists(args.db_path):

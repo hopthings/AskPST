@@ -5,14 +5,19 @@ import json
 import logging
 import email
 import glob
+import warnings
 from email.parser import BytesParser
 from email.policy import default
 from typing import Dict, List, Optional, Any, Generator, Tuple
 from datetime import datetime
 
-# Configure logging
+# Suppress NumPy 1.x / 2.x compatibility warnings which appear when importing pypff
+warnings.filterwarnings("ignore", message="A module that was compiled using NumPy 1.x cannot be run in NumPy 2")
+os.environ["PYTHONWARNINGS"] = "ignore::UserWarning"
+
+# Configure logging - default to ERROR level to suppress INFO and WARNING messages
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.ERROR,  # Only show errors by default
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)

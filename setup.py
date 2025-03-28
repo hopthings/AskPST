@@ -8,7 +8,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.10.8",
     install_requires=[
-        "numpy",
+        "numpy<2",  # Pinning to older NumPy for compatibility
         "pandas",
         "tqdm",
         "typer",
